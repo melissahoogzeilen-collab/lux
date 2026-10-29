@@ -1,0 +1,95 @@
+/* Toastr — Clean & Simple (DARK, Top-Center, soft + transparent) */
+/* Replace your ONE toast css file with this whole block. */
+
+:root{
+  /* softer, slightly transparent card + lighter outline + text */
+  --toast-bg: rgba(11,18,32,.78);
+  --toast-border: rgba(255,255,255,.08);
+  --toast-text: #eef2f8;
+
+  --toast-shadow: 0 16px 48px rgba(0,0,0,.5);
+  --toast-radius: 10px;
+  --toast-width: 360px;
+  --toast-pad: 12px 16px 14px 16px;
+
+  /* default accent (info) — variants override below */
+  --accent: #9fc3ff; /* soft blue */
+}
+
+/* container (top-center) */
+#toast-container{
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+#toast-container.toast-top-center{ top:16px; left:50%; transform: translateX(-50%); }
+#toast-container.toast-top-right { top:16px; right:16px; }
+#toast-container.toast-top-left  { top:16px; left:16px; }
+#toast-container.toast-bottom-right{ bottom:16px; right:16px; }
+#toast-container.toast-bottom-left { bottom:16px; left:16px; }
+#toast-container.toast-bottom-center{ bottom:16px; left:50%; transform: translateX(-50%); }
+
+/* toast card */
+#toast-container > div{
+  position: relative;
+  pointer-events: auto;
+  overflow: hidden;
+  width: var(--toast-width);
+  padding: var(--toast-pad);
+  border-radius: var(--toast-radius);
+  color: var(--toast-text);
+
+  /* subtle transparency + glass */
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-border);
+  box-shadow: var(--toast-shadow);
+  backdrop-filter: saturate(120%) blur(6px);
+  -webkit-backdrop-filter: saturate(120%) blur(6px);
+
+  font: 700 14px/1.28 Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+  opacity: .96;
+  margin-bottom: 10px;
+}
+
+/* Title + message (accent only on title for a classy pop) */
+#toast-container > div .toast-title{
+  font-weight: 800;
+  margin: 0 28px 2px 0;
+  letter-spacing: .2px;
+  color: var(--accent);
+}
+#toast-container > div .toast-message{
+  letter-spacing: .2px;
+}
+
+/* keep “×” (clean) — comment out to hide */
+#toast-container > div button.toast-close-button{
+  position:absolute; top:8px; right:10px;
+  background:none; border:none; box-shadow:none;
+  color:#cbd5e1; font-size:18px; line-height:1; opacity:.9; cursor:pointer;
+}
+#toast-container > div button.toast-close-button:hover{ color:#fff; opacity:1; }
+
+/* Progress bar — thinner, smoother, slightly translucent */
+#toast-container > div .toast-progress{
+  position:absolute; left:14px; right:14px; bottom:8px;
+  height:2px; border-radius:2px;
+  background: var(--accent);
+  opacity: .75;                      /* softer look */
+  pointer-events: none;
+  transition: width 220ms linear;    /* smooth shrink */
+}
+
+/* Pastel variant accents (title + bar only; card stays neutral) */
+#toast-container > div.toast-success{ --accent: #8fd8be; } /* soft mint   */
+#toast-container > div.toast-error  { --accent: #f3a7a7; } /* soft rose   */
+#toast-container > div.toast-info   { --accent: #9fc3ff; } /* soft blue   */
+#toast-container > div.toast-warning{ --accent: #f6d49a; } /* soft amber  */
+
+/* RTL */
+#toast-container > div.rtl{ direction: rtl; }
+
+/* Mobile: full width with gutters */
+@media (max-width: 480px){
+  #toast-container > div{ width: calc(100vw - 32px); }
+}

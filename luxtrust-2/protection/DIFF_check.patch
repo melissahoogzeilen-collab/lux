@@ -1,0 +1,141 @@
+--- anti_original/check.php	2026-06-17 00:07:38.000000000 +0000
++++ anti_upgrade_work/check.php	2026-06-17 15:37:37.701957855 +0000
+@@ -95,6 +95,7 @@
+ 
+ require_once __DIR__ . '/db.php';                 // 💡 safer than include
+ require_once __DIR__ . '/vendor/autoload.php';
++require_once __DIR__ . '/protection_upgrade.php';
+ if (session_status() === PHP_SESSION_NONE) {
+     session_start();
+ }
+@@ -149,8 +150,13 @@
+ }
+ 
+ function get_client_ip() {
+-    // Add your proxy IPs here if you sit behind one (nginx, cloudflare, etc.)
+-    static $trusted = ['127.0.0.1', '::1']; // add/load from settings if you have
++    $settings = $GLOBALS['settings'] ?? [];
++    if (function_exists('ab_get_client_ip_safe')) {
++        return ab_get_client_ip_safe(is_array($settings) ? $settings : []);
++    }
++
++    // Legacy fallback
++    static $trusted = ['127.0.0.1', '::1'];
+     $remote = $_SERVER['REMOTE_ADDR'] ?? '';
+     if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+         return $_SERVER['HTTP_CF_CONNECTING_IP'];
+@@ -169,8 +175,8 @@
+     $block_reason = 'N/A';
+ 
+     // Load settings as key=>value and expose globally for helper functions
+-    $stmt = $pdo->query("SELECT name, value FROM settings");
+-    $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
++    // Uses short cache when available; dashboard changes remain responsive.
++    $settings = function_exists('ab_load_settings') ? ab_load_settings($pdo) : ($pdo->query("SELECT name, value FROM settings")->fetchAll(PDO::FETCH_KEY_PAIR) ?: []);
+     $GLOBALS['settings'] = $settings; // 👈 make visible to functions that do `global $settings`
+ 
+     // === Feature toggles (accept multiple possible names from the dashboard) ===
+@@ -192,6 +198,15 @@
+     $rate_limiting_enabled            = feature_enabled($settings, ['rate_limiting_enabled','rate_limiting']);
+     $honeypot_enabled                 = feature_enabled($settings, ['honeypot_enabled','honeypot']);
+     $ip_reputation_enabled            = feature_enabled($settings, ['ip_reputation_enabled','ip_reputation']);
++
++    // Professional safe upgrade toggles (server-side only; CAPTCHA untouched)
++    $origin_lock_enabled              = feature_enabled($settings, ['origin_lock_enabled']);
++    $adaptive_risk_engine_enabled     = feature_enabled($settings, ['adaptive_risk_engine_enabled']);
++    $temporary_block_ttl_enabled      = feature_enabled($settings, ['temporary_block_ttl_enabled']);
++    $route_rate_limits_enabled        = feature_enabled($settings, ['route_rate_limits_enabled']);
++    $cloudflare_edge_scoring_enabled  = feature_enabled($settings, ['cloudflare_edge_scoring_enabled']);
++    $advanced_cache_enabled           = feature_enabled($settings, ['advanced_cache_enabled']);
++
+     $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+     $ip_address = get_client_ip();
+     $visitor_country = get_country_from_ip($ip_address);
+@@ -216,6 +231,23 @@
+         return;
+     }
+ 
++    // === PROFESSIONAL SAFE LAYER ===
++    // Runs after whitelist and before heavy checks. It does not alter CAPTCHA flow.
++    if (function_exists('ab_apply_professional_layer')) {
++        $pro_result = ab_apply_professional_layer($pdo, $ip_address, $visitor_country, $user_agent, $settings);
++        if (!empty($pro_result['blocked'])) {
++            $pro_reason = $pro_result['reason'] ?? 'Professional protection block';
++            log_visitor($ip_address, $visitor_country, $user_agent, true, $pro_reason);
++            if (!empty($pro_result['hard'])) {
++                block_and_mark_visitor($ip_address, $pro_reason);
++            } else {
++                // TTL/edge/origin route blocks stay temporary when the migration is installed.
++                ab_send_stealth_block(404);
++            }
++            return;
++        }
++    }
++
+ 
+ /* ---- HONEYPOT (correct placement) ---- */
+ $honeypot_on = !empty($settings['honeypot_enabled']) || !empty($settings['honeypot']);
+@@ -316,7 +348,7 @@
+ 
+ 
+ 
+-    $rdns = @gethostbyaddr($ip_address) ?: '';
++    $rdns = function_exists('ab_cached_rdns') ? ab_cached_rdns($pdo, $ip_address, $settings) : (@gethostbyaddr($ip_address) ?: '');
+     foreach (['amazonaws','google','ovh','linode','digitalocean','m247','netcup','choopa'] as $pattern) {
+         if ($rdns !== '' && stripos($rdns, $pattern) !== false) {
+             
+@@ -1114,22 +1146,50 @@
+ }
+ 
+ function get_country_from_ip($ip) {
++    global $pdo, $settings;
+     if ($ip === '::1' || $ip === '127.0.0.1') return 'local';
++
++    $cache_on = function_exists('ab_bool_setting') && isset($settings) && is_array($settings)
++        ? ab_bool_setting($settings, ['advanced_cache_enabled'], true)
++        : false;
++
++    if ($cache_on && function_exists('ab_cache_get') && isset($pdo)) {
++        $cached = ab_cache_get($pdo, 'country:' . $ip);
++        if ($cached !== null && $cached !== '') return $cached;
++    }
++
+     $local = offline_country_lookup($ip);
+-    if ($local !== null) return $local;
+-    @file_put_contents(__DIR__ . '/logs/country_fail_safe.log', date('Y-m-d H:i:s') . " IP: $ip - No country found\n", FILE_APPEND);
++    if ($local !== null) {
++        if ($cache_on && function_exists('ab_cache_set') && isset($pdo)) {
++            ab_cache_set($pdo, 'country:' . $ip, $local, 604800);
++        }
++        return $local;
++    }
++
++    @file_put_contents(__DIR__ . '/logs/country_fail_safe.log', date('Y-m-d H:i:s') . " IP: $ip - No country found
++", FILE_APPEND);
+     return 'unknown';
+ }
+ 
+ function ip_in_range($ip, $range) {
++    if (function_exists('ab_ip_in_cidr')) {
++        return ab_ip_in_cidr((string)$ip, (string)$range);
++    }
++
++    // Legacy IPv4 fallback
++    if (strpos($range, '/') === false) return $ip === $range;
+     [$subnet, $netmask] = explode('/', $range);
+     $netmask = (int)$netmask;
+-    $ip_decimal    = sprintf('%u', ip2long($ip));
+-    $range_decimal = sprintf('%u', ip2long($subnet));
++    $ip_long = ip2long($ip);
++    $range_long = ip2long($subnet);
++    if ($ip_long === false || $range_long === false) return false;
++    $ip_decimal    = sprintf('%u', $ip_long);
++    $range_decimal = sprintf('%u', $range_long);
+     $mask = $netmask === 0 ? 0 : (~((1 << (32 - $netmask)) - 1)) & 0xFFFFFFFF;
+     return (($ip_decimal & $mask) === ($range_decimal & $mask));
+ }
+ 
++
+ function ip_matches_wildcard($ip, $wildcard) {
+     $pattern = str_replace(['.', '*'], ['\.', '\d+'], trim($wildcard));
+     return (bool)preg_match("/^{$pattern}$/", $ip);

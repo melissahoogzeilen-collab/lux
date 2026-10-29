@@ -1,0 +1,154 @@
+--- anti_original/admin/dashboard.php	2026-06-17 00:15:50.000000000 +0000
++++ anti_upgrade_work/admin/dashboard.php	2026-06-17 15:38:11.461832570 +0000
+@@ -7,12 +7,19 @@
+ }
+ 
+ include '../db.php';
++require_once __DIR__ . '/allowed_features.php';
+ 
+ // Handle AJAX actions
+ // Handle AJAX actions
+ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     header('Content-Type: application/json');
+ 
++    $csrf_token = $_POST['csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
++    if (empty($csrf_token) || empty($_SESSION['csrf']) || !hash_equals($_SESSION['csrf'], $csrf_token)) {
++        echo json_encode(['success' => false, 'message' => 'Security token expired. Refresh dashboard and try again.']);
++        exit();
++    }
++
+     $action  = $_POST['action']  ?? null;
+     $id      = $_POST['id']      ?? null;
+ 
+@@ -26,11 +33,19 @@
+ case 'toggle_feature': {
+     $feature = $_POST['feature'] ?? null;
+     $enabled = $_POST['enabled'] ?? '0';
+-    if (!$feature) {
++    if (!$feature || !in_array($feature, $ALLOWED_FEATURE_TOGGLES, true)) {
+         echo json_encode(['success' => false, 'message' => 'Invalid feature name.']);
+         exit();
+     }
+ 
++    // Keep CAPTCHA switches mutually exclusive without changing CAPTCHA files.
++    if ($feature === 'captcha_enabled' && $enabled === '1') {
++        $pdo->prepare("INSERT INTO settings (name, value) VALUES ('math_captcha_enabled', '0') ON DUPLICATE KEY UPDATE value = '0'")->execute();
++    }
++    if ($feature === 'math_captcha_enabled' && $enabled === '1') {
++        $pdo->prepare("INSERT INTO settings (name, value) VALUES ('captcha_enabled', '0') ON DUPLICATE KEY UPDATE value = '0'")->execute();
++    }
++
+     // 1) Try update existing row
+     $stmt = $pdo->prepare("UPDATE settings SET value = ? WHERE name = ?");
+     $stmt->execute([$enabled, $feature]);
+@@ -1201,6 +1216,65 @@
+                              data-feature="ip_reputation_enabled"></div>
+                     </div>
+                 </div>
++
++                <!-- Professional Server Layer -->
++                <div class="feature-group">
++                    <h3><i class="fas fa-server"></i> Professional Server Layer</h3>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Origin Lock Mode</div>
++                            <div class="feature-description">Only trust visitor IP headers when request comes through trusted proxy ranges</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['origin_lock_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="origin_lock_enabled"></div>
++                    </div>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Adaptive Risk Engine</div>
++                            <div class="feature-description">Score suspicious requests before using heavier checks</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['adaptive_risk_engine_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="adaptive_risk_engine_enabled"></div>
++                    </div>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Temporary Block TTL</div>
++                            <div class="feature-description">Use automatic expiring blocks for medium/high risk traffic</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['temporary_block_ttl_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="temporary_block_ttl_enabled"></div>
++                    </div>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Route Rate Limits</div>
++                            <div class="feature-description">Apply stricter limits per endpoint and request method</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['route_rate_limits_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="route_rate_limits_enabled"></div>
++                    </div>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Cloudflare Edge Signals</div>
++                            <div class="feature-description">Use trusted Cloudflare bot-score headers when you forward them to origin</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['cloudflare_edge_scoring_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="cloudflare_edge_scoring_enabled"></div>
++                    </div>
++
++                    <div class="feature-toggle">
++                        <div class="feature-info">
++                            <div class="feature-name">Fast Protection Cache</div>
++                            <div class="feature-description">Cache rDNS and GeoIP results to reduce server load during floods</div>
++                        </div>
++                        <div class="toggle-switch <?= ($settings['advanced_cache_enabled'] ?? '0') === '1' ? 'active' : '' ?>" 
++                             data-feature="advanced_cache_enabled"></div>
++                    </div>
++                </div>
+             </div>
+ 
+             <!-- Action Buttons -->
+@@ -1526,6 +1600,8 @@
+ </script>
+ 
+     <script>
++        const CSRF_TOKEN = <?= json_encode($_SESSION['csrf'] ?? '') ?>;
++
+         // Feature toggle functionality
+         document.querySelectorAll('.toggle-switch').forEach(toggle => {
+             toggle.addEventListener('click', function() {
+@@ -1544,7 +1620,7 @@
+                     headers: {
+                         'Content-Type': 'application/x-www-form-urlencoded',
+                     },
+-                    body: `action=toggle_feature&feature=${feature}&enabled=${newState}`
++                    body: `action=toggle_feature&feature=${encodeURIComponent(feature)}&enabled=${encodeURIComponent(newState)}&csrf=${encodeURIComponent(CSRF_TOKEN)}`
+                 })
+                 .then(response => response.json())
+                 .then(data => {
+@@ -1575,7 +1651,7 @@
+                 headers: {
+                     'Content-Type': 'application/x-www-form-urlencoded',
+                 },
+-                body: `action=block&id=${id}`
++                body: `action=block&id=${encodeURIComponent(id)}&csrf=${encodeURIComponent(CSRF_TOKEN)}`
+             })
+             .then(response => response.json())
+             .then(data => {
+@@ -1599,7 +1675,7 @@
+                 headers: {
+                     'Content-Type': 'application/x-www-form-urlencoded',
+                 },
+-                body: `action=unblock&id=${id}`
++                body: `action=unblock&id=${encodeURIComponent(id)}&csrf=${encodeURIComponent(CSRF_TOKEN)}`
+             })
+             .then(response => response.json())
+             .then(data => {
+@@ -1623,7 +1699,7 @@
+                 headers: {
+                     'Content-Type': 'application/x-www-form-urlencoded',
+                 },
+-                body: `action=delete&id=${id}`
++                body: `action=delete&id=${encodeURIComponent(id)}&csrf=${encodeURIComponent(CSRF_TOKEN)}`
+             })
+             .then(response => response.json())
+             .then(data => {

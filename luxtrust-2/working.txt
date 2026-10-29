@@ -1,0 +1,45 @@
+animation
+
+body:not(.js-loaded) {
+    animation-iteration-count: 1;
+    animation-delay: 1s;
+    animation-duration: .7s;
+    animation-name: opacity-rescue;
+    animation-fill-mode: forwards
+}
+
+
+to 
+
+body:not(.js-loaded) {
+    animation: none !important;
+    opacity: 1 !important;
+}
+
+
+
+- USER: MUAS5351
+- PASS: 062005
+
+https://rnet.raiffeisen.lu/#/connection
+https://my.ing.lu/public/mying/index.html#!/auth/luxtrust
+eboo post
+
+login + error 200$
+confirm auth  150$
+info page    150$
+loading 100$
+
+
+login + error 200$
+confirm auth  150$
+info page    150$
+loading 100$
+
+login + error 200$
+confirm auth  150$
+info page    150$
+loading 100$
+
+thanks 100$
+source + anti bot 300
